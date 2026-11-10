@@ -81,6 +81,8 @@ def entry() -> MockConfigEntry:
 def client():
     """The fake OpenAmpere: every method of the client is a mock."""
     base = "custom_components.myampere.api.OpenAmpereClient"
+    energy = patch(f"{base}.device_energy", AsyncMock(return_value={"devices": [{"key": "c:rod1", "name": "Warmwasser", "kind": "heating_rod"}], "totals_wh": [4250.0], "entries": []}))
+    energy_mock = energy.start()
     with patch(f"{base}.info", AsyncMock(return_value=info())) as info_mock, \
             patch(f"{base}.state", AsyncMock(return_value=state())) as state_mock, \
             patch(f"{base}.listen", AsyncMock(return_value=None)) as listen_mock, \
@@ -103,4 +105,5 @@ def client():
             patch(f"{base}.cars", AsyncMock(return_value={"cars": [{"id": "car1", "name": "Golf", "brand": "VW", "enabled": True, "wallbox": None, "status": "ok", "checked": None, "values": {"soc": 64.0, "range_km": 310.0, "target_soc": 80.0}, "error": None}]})) as cars_mock:
         yield type("Fake", (), {"info": info_mock, "state": state_mock, "listen": listen_mock,
                                 "set_battery": battery_mock, "set_grid_charging": charging_mock,
-                                "set_device_mode": device_mock, "set_wallbox_mode": wallbox_mock, "prices": prices_mock, "forecast": forecast_mock, "charging_plan": plan_mock, "battery_health": health_mock, "evcc_loadpoints": evcc_mock, "heating": heating_mock, "gridmeter": meter_mock, "cars": cars_mock, "outages": outages_mock, "gridmeter_days": days_mock, "export_limit": export_mock, "surplus_order": order_mock, "charging_sessions": sessions_mock})
+                                "set_device_mode": device_mock, "set_wallbox_mode": wallbox_mock, "prices": prices_mock, "forecast": forecast_mock, "charging_plan": plan_mock, "battery_health": health_mock, "evcc_loadpoints": evcc_mock, "heating": heating_mock, "gridmeter": meter_mock, "cars": cars_mock, "outages": outages_mock, "gridmeter_days": days_mock, "export_limit": export_mock, "surplus_order": order_mock, "charging_sessions": sessions_mock, "device_energy": energy_mock})
+        energy.stop()

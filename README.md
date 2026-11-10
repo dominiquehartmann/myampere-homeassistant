@@ -39,6 +39,7 @@ device):
 - Solar forecast for today and tomorrow
 - Next planned grid-charging quarter hour, with its reason
 - Battery state of health, full cycles, efficiency and the hottest cell
+- Each own device: energy today (default off)
 - Each evcc loadpoint: power and car charge
 - Heat pump: hours set back today, and power and energy through EEBUS when it is set up
 - Each car: charge, range and target charge

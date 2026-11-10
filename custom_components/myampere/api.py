@@ -183,6 +183,10 @@ class OpenAmpereClient:
         """The order in which the surplus goes to the own devices (history route, read token)."""
         return await self._request("GET", "/history/surplus-order")
 
+    async def device_energy(self) -> dict:
+        """Energy per own device today in Wh (history route, read token)."""
+        return await self._request("GET", "/history/devices/energy?period=day&resolution=day")
+
     async def export_limit(self) -> dict:
         """The feed-in limit of the inverter, read only (history route, read token)."""
         return await self._request("GET", "/history/export-limit")

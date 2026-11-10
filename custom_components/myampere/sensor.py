@@ -108,6 +108,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
         entities += [ExternalPvSensor(coordinator, d, external["name"]) for d in EXTERNAL_PV]
     for device in coordinator.info["devices"]:
         entities.append(DevicePowerSensor(coordinator, device["id"]))
+        entities.append(DeviceEnergySensor(coordinator, device["id"]))
         if device["kind"] == "heating_rod":
             entities.append(DeviceTemperatureSensor(coordinator, device["id"]))
     for wallbox in coordinator.info.get("wallboxes") or []:  # missing on older myAmpere versions
@@ -239,6 +240,28 @@ class DevicePowerSensor(OpenAmpereEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         return self.device["power_w"] if self.device else None
+
+
+class DeviceEnergySensor(OpenAmpereEntity, SensorEntity):
+    """Energy of an own device today in kWh, from the history (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, device_id: str) -> None:
+        super().__init__(coordinator, "device_energy_today", device_id)
+        self._label_key = f"c:{device_id}"
+
+    @property
+    def native_value(self) -> float | None:
+        data = (self.coordinator.data or {}).get("device_energy") or {}
+        for index, label in enumerate(data.get("devices") or []):
+            if label["key"] == self._label_key:
+                return round(data["totals_wh"][index] / 1000, 2)
+        return None
 
 
 class DeviceTemperatureSensor(OpenAmpereEntity, SensorEntity):

@@ -42,6 +42,7 @@ die ein, die du brauchst:
 - Solarprognose für heute und morgen
 - Nächste geplante Ladeviertelstunde mit ihrem Grund
 - Batterie-Gesundheit, Vollzyklen, Wirkungsgrad und heißeste Zelle
+- Je eigenem Gerät: Energie heute (standardmäßig aus)
 - Je evcc-Ladepunkt: Leistung und Auto-Ladestand
 - Wärmepumpe: heute abgesenkte Stunden, und Leistung und Energie über EEBUS, wenn es eingerichtet ist
 - Je Auto: Ladestand, Reichweite und Ziel-Ladestand

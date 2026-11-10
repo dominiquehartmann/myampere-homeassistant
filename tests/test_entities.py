@@ -488,3 +488,15 @@ def test_a_new_loadpoint_or_car_asks_for_a_reload() -> None:
     assert needs_reload(info, None, evcc=[1, 2], cars=["car1"], eebus=False)
     assert needs_reload(info, None, evcc=[1], cars=["car1", "car2"], eebus=False)
     assert needs_reload(info, None, evcc=[1], cars=["car1"], eebus=True)
+
+
+async def test_device_energy_today_is_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: the energy of an own device today, from the history; off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    sensor = entity_id(hass, "sensor", "rod1_device_energy_today")
+    assert sensor and registry.async_get(sensor).disabled_by is not None
+    registry.async_update_entity(sensor, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(sensor).state == "4.25"
