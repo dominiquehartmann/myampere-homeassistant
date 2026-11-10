@@ -123,6 +123,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
     entities += [ForecastSensor(coordinator, "today_kwh"), ForecastSensor(coordinator, "tomorrow_kwh")]
     entities.append(ChargingPlanSensor(coordinator))
     entities += [BatteryHealthSensor(coordinator, key, unit) for key, unit in HEALTH_SENSORS]
+    # evcc loadpoints as they are when the integration starts; a new one comes with a reload
+    for lp in ((coordinator.data or {}).get("evcc") or {}).get("loadpoints") or []:
+        entities += [EvccLoadpointSensor(coordinator, lp["id"], key, unit) for key, unit in EVCC_SENSORS]
+    entities.append(HeatingSetbackSensor(coordinator))
     async_add_entities(entities)
 
 
@@ -375,3 +379,41 @@ class BatteryHealthSensor(OpenAmpereEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         return ((self.coordinator.data or {}).get("battery_health") or {}).get(self._key)
+
+
+EVCC_SENSORS = (("power_w", "W"), ("soc", "%"))
+
+
+class EvccLoadpointSensor(OpenAmpereEntity, SensorEntity):
+    """Power or car charge of an evcc loadpoint (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, lp_id: int, key: str, unit: str) -> None:
+        super().__init__(coordinator, f"evcc_{key}")  # on the main device: evcc loadpoints are not myAmpere devices
+        self._attr_unique_id = f"{coordinator.info['installation_id']}_evcc_{lp_id}_{key}"
+        self._lp_id, self._key = lp_id, key
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = SensorDeviceClass.POWER if unit == "W" else SensorDeviceClass.BATTERY
+
+    @property
+    def native_value(self) -> float | None:
+        loadpoints = ((self.coordinator.data or {}).get("evcc") or {}).get("loadpoints") or []
+        found = next((lp for lp in loadpoints if lp["id"] == self._lp_id), None)
+        return found.get(self._key) if found else None
+
+
+class HeatingSetbackSensor(OpenAmpereEntity, SensorEntity):
+    """Hours the heat pump was set back today (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, coordinator: OpenAmpereCoordinator) -> None:
+        super().__init__(coordinator, "heating_setback_hours")
+
+    @property
+    def native_value(self) -> float | None:
+        return ((self.coordinator.data or {}).get("heating") or {}).get("setback_hours_today")

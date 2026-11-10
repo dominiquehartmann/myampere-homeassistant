@@ -216,6 +216,15 @@
       },
       "battery_cell_max_now_c": {
         "name": "Heißeste Batteriezelle"
+      },
+      "evcc_power_w": {
+        "name": "evcc Ladepunkt Leistung"
+      },
+      "evcc_soc": {
+        "name": "evcc Auto-Ladestand"
+      },
+      "heating_setback_hours": {
+        "name": "Wärmepumpe heute abgesenkt"
       }
     },
     "binary_sensor": {

@@ -403,3 +403,18 @@ async def test_the_battery_health_is_off_until_switched_on(hass: HomeAssistant, 
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert hass.states.get(soh_id).state == "97.5"
+
+
+async def test_evcc_loadpoints_and_the_heat_pump_are_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: each evcc loadpoint gets its power and car charge, the heat pump its setback hours; all off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    ids = [entity_id(hass, "sensor", key) for key in ("evcc_1_power_w", "evcc_1_soc", "heating_setback_hours")]
+    assert all(ids) and all(registry.async_get(i).disabled_by is not None for i in ids)
+    for i in ids:
+        registry.async_update_entity(i, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(ids[0]).state == "4100.0"
+    assert hass.states.get(ids[1]).state == "55.0"
+    assert hass.states.get(ids[2]).state == "1.5"

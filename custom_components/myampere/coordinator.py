@@ -32,6 +32,7 @@ PRICES_S = 900  # the import prices change every quarter hour
 FORECAST_S = 3600  # the solar forecast is updated a few times a day
 PLAN_S = 300  # the charging plan follows the prices and the state of charge
 HEALTH_S = 3600  # the state of health changes over months
+EVCC_S = 60  # evcc and the heat pump change with the car and the weather
 
 
 class OpenAmpereCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -101,7 +102,9 @@ class OpenAmpereCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"prices": await self._cached("prices", self.client.prices, PRICES_S),
                 "forecast": await self._cached("forecast", self.client.forecast, FORECAST_S),
                 "charging_plan": await self._cached("charging_plan", self.client.charging_plan, PLAN_S),
-                "battery_health": await self._cached("battery_health", self.client.battery_health, HEALTH_S)}
+                "battery_health": await self._cached("battery_health", self.client.battery_health, HEALTH_S),
+                "evcc": await self._cached("evcc", self.client.evcc_loadpoints, EVCC_S),
+                "heating": await self._cached("heating", self.client.heating, EVCC_S)}
 
     async def _cached(self, name: str, fetch, every: float) -> dict | None:
         if time.monotonic() - self._read_at.get(name, float("-inf")) < every:

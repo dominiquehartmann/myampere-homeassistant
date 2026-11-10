@@ -216,6 +216,15 @@
       },
       "battery_cell_max_now_c": {
         "name": "Hottest battery cell"
+      },
+      "evcc_power_w": {
+        "name": "evcc loadpoint power"
+      },
+      "evcc_soc": {
+        "name": "evcc car charge"
+      },
+      "heating_setback_hours": {
+        "name": "Heat pump set back today"
       }
     },
     "binary_sensor": {

@@ -151,6 +151,14 @@ class OpenAmpereClient:
         """State of health, cycles and efficiency of the battery (history route, read token)."""
         return await self._request("GET", "/history/battery-health")
 
+    async def evcc_loadpoints(self) -> dict:
+        """The loadpoints of evcc: charging points and heat pumps (history route, read token)."""
+        return await self._request("GET", "/history/evcc-loadpoints")
+
+    async def heating(self) -> dict:
+        """Heat pump through myAmpere: climate, plan and setback hours, no addresses (history route, read token)."""
+        return await self._request("GET", "/history/heating")
+
     async def forecast(self) -> dict:
         """Expected solar energy: day totals and quarter hours, no location (history route, read token)."""
         return await self._request("GET", "/history/forecast")
