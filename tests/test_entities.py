@@ -433,3 +433,19 @@ async def test_grid_meter_and_cars_are_off_until_switched_on(hass: HomeAssistant
     assert hass.states.get(ids[0]).state == "2026-11-08"
     assert hass.states.get(ids[1]).state == "64.0"
     assert hass.states.get(ids[2]).state == "310.0"
+
+
+async def test_outages_and_the_last_charge_are_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: power cuts and the last car charge as entities, off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    ids = [entity_id(hass, "sensor", key) for key in ("outage_count", "outage_total_s", "last_charge_kwh")]
+    assert all(ids) and all(registry.async_get(i).disabled_by is not None for i in ids)
+    for i in ids:
+        registry.async_update_entity(i, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(ids[0]).state == "2"
+    assert hass.states.get(ids[1]).state == "900"
+    last = hass.states.get(ids[2])
+    assert last.state == "11.5" and last.attributes["vehicle"] == "Golf"

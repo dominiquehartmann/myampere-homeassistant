@@ -237,6 +237,15 @@
       },
       "car_target_soc": {
         "name": "Car target charge"
+      },
+      "outage_count": {
+        "name": "Power cuts seen"
+      },
+      "outage_total_s": {
+        "name": "Power cuts total duration"
+      },
+      "last_charge_kwh": {
+        "name": "Last car charge"
       }
     },
     "binary_sensor": {

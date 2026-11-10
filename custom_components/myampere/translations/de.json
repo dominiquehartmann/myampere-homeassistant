@@ -237,6 +237,15 @@
       },
       "car_target_soc": {
         "name": "Auto-Ziel-Ladestand"
+      },
+      "outage_count": {
+        "name": "Stromausfälle erfasst"
+      },
+      "outage_total_s": {
+        "name": "Stromausfälle, Gesamtdauer"
+      },
+      "last_charge_kwh": {
+        "name": "Letzter Auto-Ladevorgang"
       }
     },
     "binary_sensor": {

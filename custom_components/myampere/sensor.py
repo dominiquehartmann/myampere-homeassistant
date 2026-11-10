@@ -127,7 +127,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
     for lp in ((coordinator.data or {}).get("evcc") or {}).get("loadpoints") or []:
         entities += [EvccLoadpointSensor(coordinator, lp["id"], key, unit) for key, unit in EVCC_SENSORS]
     entities.append(HeatingSetbackSensor(coordinator))
-    entities.append(GridMeterUntilSensor(coordinator))
+    entities += [GridMeterUntilSensor(coordinator), OutageSensor(coordinator, "count"),
+                 OutageSensor(coordinator, "total_s"), LastChargeSensor(coordinator, "energy_kwh")]
     # cars as they are when the integration starts; a new car comes with a reload
     for car in ((coordinator.data or {}).get("cars") or {}).get("cars") or []:
         entities += [CarSensor(coordinator, car["id"], key, unit) for key, unit in CAR_SENSORS]
@@ -459,3 +460,47 @@ class GridMeterUntilSensor(OpenAmpereEntity, SensorEntity):
     def native_value(self) -> date | None:
         until = ((self.coordinator.data or {}).get("gridmeter") or {}).get("until")
         return date.fromisoformat(until[:10]) if until else None
+
+
+class OutageSensor(OpenAmpereEntity, SensorEntity):
+    """Number of power cuts seen by myAmpere, or their total length in seconds (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_state_class = SensorStateClass.TOTAL
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, which: str) -> None:
+        super().__init__(coordinator, f"outage_{which}")
+        self._which = which
+        if which == "total_s":
+            self._attr_native_unit_of_measurement = UnitOfTime.SECONDS
+            self._attr_device_class = SensorDeviceClass.DURATION
+
+    @property
+    def native_value(self) -> int | None:
+        return ((self.coordinator.data or {}).get("outages") or {}).get(self._which)
+
+
+class LastChargeSensor(OpenAmpereEntity, SensorEntity):
+    """Energy of the last ended car charge in kWh (#6). Off by default; the time, car and loadpoint are attributes."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, which: str) -> None:
+        super().__init__(coordinator, "last_charge_kwh")
+
+    def _last(self) -> dict:
+        sessions = ((self.coordinator.data or {}).get("charging_sessions") or {}).get("sessions") or []
+        return sessions[0] if sessions else {}
+
+    @property
+    def native_value(self) -> float | None:
+        return self._last().get("energy_kwh")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        last = self._last()
+        return {"finished": last.get("finished"), "vehicle": last.get("vehicle"), "loadpoint": last.get("loadpoint")}

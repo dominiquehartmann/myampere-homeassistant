@@ -167,6 +167,14 @@ class OpenAmpereClient:
         """The cars with their charge state, without login data (history route, read token)."""
         return await self._request("GET", "/history/cars")
 
+    async def outages(self) -> dict:
+        """Power cuts: the running one and the last ten (history route, read token)."""
+        return await self._request("GET", "/history/outages")
+
+    async def charging_sessions(self) -> dict:
+        """The last five ended charges of the cars, without odometer (history route, read token)."""
+        return await self._request("GET", "/history/charging-sessions")
+
     async def forecast(self) -> dict:
         """Expected solar energy: day totals and quarter hours, no location (history route, read token)."""
         return await self._request("GET", "/history/forecast")
