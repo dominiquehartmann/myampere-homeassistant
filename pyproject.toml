@@ -1,0 +1,15 @@
+[project]
+name = "myampere-homeassistant"
+version = "0.41.0"
+requires-python = ">=3.14"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".claude", "web"]
+# the Home Assistant integration runs on the Python of Home Assistant
+per-file-target-version = { "custom_components/**" = "py313", "tests_ha/**" = "py313" }
+
+[tool.ruff.lint]
+select = ["E", "W", "F"]
+ignore = ["E501"]

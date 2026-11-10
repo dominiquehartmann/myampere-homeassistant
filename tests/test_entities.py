@@ -391,3 +391,15 @@ async def test_the_charging_plan_shows_the_next_planned_quarter_hour(hass: HomeA
     assert state.attributes["reason"] == "günstigste Viertelstunden"
     assert state.attributes["needed_wh"] == 4200
     assert state.state.startswith(time.strftime("%Y-%m-%dT", time.gmtime(planned)))
+
+
+async def test_the_battery_health_is_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: state of health, cycles, efficiency and the hottest cell, off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    soh_id = entity_id(hass, "sensor", "battery_soh_pct")
+    assert soh_id is not None and registry.async_get(soh_id).disabled_by is not None
+    registry.async_update_entity(soh_id, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(soh_id).state == "97.5"

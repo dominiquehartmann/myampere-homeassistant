@@ -122,6 +122,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
     entities.append(ImportPriceSensor(coordinator))  # the prices come with every server (#6)
     entities += [ForecastSensor(coordinator, "today_kwh"), ForecastSensor(coordinator, "tomorrow_kwh")]
     entities.append(ChargingPlanSensor(coordinator))
+    entities += [BatteryHealthSensor(coordinator, key, unit) for key, unit in HEALTH_SENSORS]
     async_add_entities(entities)
 
 
@@ -352,3 +353,25 @@ class ChargingPlanSensor(OpenAmpereEntity, SensorEntity):
         plan = self._plan()
         return {"reason": plan.get("reason"), "needed_wh": plan.get("needed_wh"),
                 "quarters": [datetime.fromtimestamp(q, tz=UTC).isoformat() for q in plan.get("quarters") or []]}
+
+
+HEALTH_SENSORS = (("soh_pct", "%"), ("cycles", None), ("efficiency_pct", "%"), ("cell_max_now_c", "°C"))
+
+
+class BatteryHealthSensor(OpenAmpereEntity, SensorEntity):
+    """State of health, full cycles, round-trip efficiency and the hottest cell of the battery (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, key: str, unit: str | None) -> None:
+        super().__init__(coordinator, f"battery_{key}")
+        self._key = key
+        self._attr_native_unit_of_measurement = unit
+        if unit == "°C":
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+
+    @property
+    def native_value(self) -> float | None:
+        return ((self.coordinator.data or {}).get("battery_health") or {}).get(self._key)

@@ -90,7 +90,8 @@ def client():
             patch(f"{base}.set_wallbox_mode", AsyncMock(return_value={})) as wallbox_mock, \
             patch(f"{base}.prices", AsyncMock(return_value=prices())) as prices_mock, \
             patch(f"{base}.forecast", AsyncMock(return_value=forecast())) as forecast_mock, \
-            patch(f"{base}.charging_plan", AsyncMock(return_value={"quarters": [], "reason": "Ladeziel erreicht"})) as plan_mock:
+            patch(f"{base}.charging_plan", AsyncMock(return_value={"quarters": [], "reason": "Ladeziel erreicht"})) as plan_mock, \
+            patch(f"{base}.battery_health", AsyncMock(return_value={"soh_pct": 97.5, "cycles": 120.0, "efficiency_pct": 88.0, "cell_max_now_c": 27.0, "capacity_kwh": 10.0})) as health_mock:
         yield type("Fake", (), {"info": info_mock, "state": state_mock, "listen": listen_mock,
                                 "set_battery": battery_mock, "set_grid_charging": charging_mock,
-                                "set_device_mode": device_mock, "set_wallbox_mode": wallbox_mock, "prices": prices_mock, "forecast": forecast_mock, "charging_plan": plan_mock})
+                                "set_device_mode": device_mock, "set_wallbox_mode": wallbox_mock, "prices": prices_mock, "forecast": forecast_mock, "charging_plan": plan_mock, "battery_health": health_mock})

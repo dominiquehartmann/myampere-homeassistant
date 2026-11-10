@@ -147,6 +147,10 @@ class OpenAmpereClient:
         """The planned grid-charging quarter hours and their reason (history route, read token)."""
         return await self._request("GET", "/history/charging-plan")
 
+    async def battery_health(self) -> dict:
+        """State of health, cycles and efficiency of the battery (history route, read token)."""
+        return await self._request("GET", "/history/battery-health")
+
     async def forecast(self) -> dict:
         """Expected solar energy: day totals and quarter hours, no location (history route, read token)."""
         return await self._request("GET", "/history/forecast")

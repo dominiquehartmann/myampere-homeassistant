@@ -204,6 +204,18 @@
       },
       "charging_plan": {
         "name": "Charging plan: next quarter hour"
+      },
+      "battery_soh_pct": {
+        "name": "Battery state of health"
+      },
+      "battery_cycles": {
+        "name": "Battery full cycles"
+      },
+      "battery_efficiency_pct": {
+        "name": "Battery round-trip efficiency"
+      },
+      "battery_cell_max_now_c": {
+        "name": "Hottest battery cell"
       }
     },
     "binary_sensor": {

@@ -204,6 +204,18 @@
       },
       "charging_plan": {
         "name": "Ladeplan: nächste Ladeviertelstunde"
+      },
+      "battery_soh_pct": {
+        "name": "Batterie-Gesundheit (SOH)"
+      },
+      "battery_cycles": {
+        "name": "Batterie-Vollzyklen"
+      },
+      "battery_efficiency_pct": {
+        "name": "Batterie-Wirkungsgrad"
+      },
+      "battery_cell_max_now_c": {
+        "name": "Heißeste Batteriezelle"
       }
     },
     "binary_sensor": {
