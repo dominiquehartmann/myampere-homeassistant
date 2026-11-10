@@ -449,3 +449,19 @@ async def test_outages_and_the_last_charge_are_off_until_switched_on(hass: HomeA
     assert hass.states.get(ids[1]).state == "900"
     last = hass.states.get(ids[2])
     assert last.state == "11.5" and last.attributes["vehicle"] == "Golf"
+
+
+async def test_daily_grid_values_and_the_surplus_order_are_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: the latest day's grid energy and the surplus order, off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    ids = [entity_id(hass, "sensor", key) for key in ("grid_import_day_kwh", "grid_export_day_kwh", "surplus_order")]
+    assert all(ids) and all(registry.async_get(i).disabled_by is not None for i in ids)
+    for i in ids:
+        registry.async_update_entity(i, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    imported = hass.states.get(ids[0])
+    assert imported.state == "7.5" and imported.attributes["day"] == "2026-11-09"
+    assert hass.states.get(ids[1]).state == "3.0"
+    assert hass.states.get(ids[2]).state == "Speicher > Warmwasser"

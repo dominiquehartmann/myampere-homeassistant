@@ -246,6 +246,15 @@
       },
       "last_charge_kwh": {
         "name": "Last car charge"
+      },
+      "grid_import_day_kwh": {
+        "name": "Grid import, latest day"
+      },
+      "grid_export_day_kwh": {
+        "name": "Grid export, latest day"
+      },
+      "surplus_order": {
+        "name": "Surplus order"
       }
     },
     "binary_sensor": {

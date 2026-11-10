@@ -175,6 +175,14 @@ class OpenAmpereClient:
         """The last five ended charges of the cars, without odometer (history route, read token)."""
         return await self._request("GET", "/history/charging-sessions")
 
+    async def gridmeter_days(self) -> dict:
+        """Grid meter values per day in kWh, import and export (history route, read token)."""
+        return await self._request("GET", "/history/gridmeter-days")
+
+    async def surplus_order(self) -> dict:
+        """The order in which the surplus goes to the own devices (history route, read token)."""
+        return await self._request("GET", "/history/surplus-order")
+
     async def forecast(self) -> dict:
         """Expected solar energy: day totals and quarter hours, no location (history route, read token)."""
         return await self._request("GET", "/history/forecast")

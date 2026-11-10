@@ -246,6 +246,15 @@
       },
       "last_charge_kwh": {
         "name": "Letzter Auto-Ladevorgang"
+      },
+      "grid_import_day_kwh": {
+        "name": "Netzbezug, letzter Tag"
+      },
+      "grid_export_day_kwh": {
+        "name": "Netzeinspeisung, letzter Tag"
+      },
+      "surplus_order": {
+        "name": "Reihenfolge Solarüberschuss"
       }
     },
     "binary_sensor": {

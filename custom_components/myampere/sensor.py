@@ -128,7 +128,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
         entities += [EvccLoadpointSensor(coordinator, lp["id"], key, unit) for key, unit in EVCC_SENSORS]
     entities.append(HeatingSetbackSensor(coordinator))
     entities += [GridMeterUntilSensor(coordinator), OutageSensor(coordinator, "count"),
-                 OutageSensor(coordinator, "total_s"), LastChargeSensor(coordinator, "energy_kwh")]
+                 OutageSensor(coordinator, "total_s"), LastChargeSensor(coordinator, "energy_kwh"),
+                 LatestGridDaySensor(coordinator, "import"), LatestGridDaySensor(coordinator, "export"),
+                 SurplusOrderSensor(coordinator)]
     # cars as they are when the integration starts; a new car comes with a reload
     for car in ((coordinator.data or {}).get("cars") or {}).get("cars") or []:
         entities += [CarSensor(coordinator, car["id"], key, unit) for key, unit in CAR_SENSORS]
@@ -504,3 +506,53 @@ class LastChargeSensor(OpenAmpereEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         last = self._last()
         return {"finished": last.get("finished"), "vehicle": last.get("vehicle"), "loadpoint": last.get("loadpoint")}
+
+
+class LatestGridDaySensor(OpenAmpereEntity, SensorEntity):
+    """Grid energy of the most recent day the grid meter delivered, in kWh: import or export (#6). The day is an
+    attribute. Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, kind: str) -> None:
+        super().__init__(coordinator, f"grid_{kind}_day_kwh")
+        self._kind = kind
+
+    def _latest(self) -> tuple[str, float] | None:
+        days = ((self.coordinator.data or {}).get("gridmeter_days") or {}).get(self._kind) or {}
+        return max(days.items()) if days else None
+
+    @property
+    def native_value(self) -> float | None:
+        latest = self._latest()
+        return round(latest[1], 2) if latest else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        latest = self._latest()
+        return {"day": latest[0] if latest else None}
+
+
+class SurplusOrderSensor(OpenAmpereEntity, SensorEntity):
+    """The order in which the surplus goes to the devices, as text; the items are an attribute (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: OpenAmpereCoordinator) -> None:
+        super().__init__(coordinator, "surplus_order")
+
+    def _items(self) -> list[dict]:
+        return ((self.coordinator.data or {}).get("surplus_order") or {}).get("items") or []
+
+    @property
+    def native_value(self) -> str | None:
+        names = [item["name"] for item in self._items()]
+        return " > ".join(names)[:255] if names else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"items": self._items()}

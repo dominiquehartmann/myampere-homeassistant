@@ -108,7 +108,9 @@ class OpenAmpereCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "gridmeter": await self._cached("gridmeter", self.client.gridmeter, HEALTH_S),
                 "cars": await self._cached("cars", self.client.cars, EVCC_S),
                 "outages": await self._cached("outages", self.client.outages, EVCC_S),
-                "charging_sessions": await self._cached("charging_sessions", self.client.charging_sessions, EVCC_S)}
+                "charging_sessions": await self._cached("charging_sessions", self.client.charging_sessions, EVCC_S),
+                "gridmeter_days": await self._cached("gridmeter_days", self.client.gridmeter_days, HEALTH_S),
+                "surplus_order": await self._cached("surplus_order", self.client.surplus_order, EVCC_S)}
 
     async def _cached(self, name: str, fetch, every: float) -> dict | None:
         if time.monotonic() - self._read_at.get(name, float("-inf")) < every:
