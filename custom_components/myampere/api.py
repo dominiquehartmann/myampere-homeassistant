@@ -159,6 +159,14 @@ class OpenAmpereClient:
         """Heat pump through myAmpere: climate, plan and setback hours, no addresses (history route, read token)."""
         return await self._request("GET", "/history/heating")
 
+    async def gridmeter(self) -> dict:
+        """Whether the grid meter readings are on and until when (history route, read token)."""
+        return await self._request("GET", "/history/gridmeter")
+
+    async def cars(self) -> dict:
+        """The cars with their charge state, without login data (history route, read token)."""
+        return await self._request("GET", "/history/cars")
+
     async def forecast(self) -> dict:
         """Expected solar energy: day totals and quarter hours, no location (history route, read token)."""
         return await self._request("GET", "/history/forecast")

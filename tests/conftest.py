@@ -93,7 +93,9 @@ def client():
             patch(f"{base}.charging_plan", AsyncMock(return_value={"quarters": [], "reason": "Ladeziel erreicht"})) as plan_mock, \
             patch(f"{base}.battery_health", AsyncMock(return_value={"soh_pct": 97.5, "cycles": 120.0, "efficiency_pct": 88.0, "cell_max_now_c": 27.0, "capacity_kwh": 10.0})) as health_mock, \
             patch(f"{base}.evcc_loadpoints", AsyncMock(return_value={"configured": True, "error": None, "loadpoints": [{"id": 1, "title": "Garage", "heating": False, "power_w": 4100.0, "soc": 55.0}]})) as evcc_mock, \
-            patch(f"{base}.heating", AsyncMock(return_value={"enabled": True, "setback_hours_today": 1.5, "plan": None})) as heating_mock:
+            patch(f"{base}.heating", AsyncMock(return_value={"enabled": True, "setback_hours_today": 1.5, "plan": None})) as heating_mock, \
+            patch(f"{base}.gridmeter", AsyncMock(return_value={"configured": True, "active_kinds": ["import"], "until": "2026-11-08", "synced": None, "error": None, "busy": False})) as meter_mock, \
+            patch(f"{base}.cars", AsyncMock(return_value={"cars": [{"id": "car1", "name": "Golf", "brand": "VW", "enabled": True, "wallbox": None, "status": "ok", "checked": None, "values": {"soc": 64.0, "range_km": 310.0, "target_soc": 80.0}, "error": None}]})) as cars_mock:
         yield type("Fake", (), {"info": info_mock, "state": state_mock, "listen": listen_mock,
                                 "set_battery": battery_mock, "set_grid_charging": charging_mock,
-                                "set_device_mode": device_mock, "set_wallbox_mode": wallbox_mock, "prices": prices_mock, "forecast": forecast_mock, "charging_plan": plan_mock, "battery_health": health_mock, "evcc_loadpoints": evcc_mock, "heating": heating_mock})
+                                "set_device_mode": device_mock, "set_wallbox_mode": wallbox_mock, "prices": prices_mock, "forecast": forecast_mock, "charging_plan": plan_mock, "battery_health": health_mock, "evcc_loadpoints": evcc_mock, "heating": heating_mock, "gridmeter": meter_mock, "cars": cars_mock})

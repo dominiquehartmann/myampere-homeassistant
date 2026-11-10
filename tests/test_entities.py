@@ -418,3 +418,18 @@ async def test_evcc_loadpoints_and_the_heat_pump_are_off_until_switched_on(hass:
     assert hass.states.get(ids[0]).state == "4100.0"
     assert hass.states.get(ids[1]).state == "55.0"
     assert hass.states.get(ids[2]).state == "1.5"
+
+
+async def test_grid_meter_and_cars_are_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: the grid meter's readings date and the charge, range and target of each car; all off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    ids = [entity_id(hass, "sensor", key) for key in ("gridmeter_until", "car_car1_soc", "car_car1_range_km")]
+    assert all(ids) and all(registry.async_get(i).disabled_by is not None for i in ids)
+    for i in ids:
+        registry.async_update_entity(i, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(ids[0]).state == "2026-11-08"
+    assert hass.states.get(ids[1]).state == "64.0"
+    assert hass.states.get(ids[2]).state == "310.0"

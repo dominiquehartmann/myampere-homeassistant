@@ -225,6 +225,18 @@
       },
       "heating_setback_hours": {
         "name": "Wärmepumpe heute abgesenkt"
+      },
+      "gridmeter_until": {
+        "name": "Netzzähler-Daten verfügbar bis"
+      },
+      "car_soc": {
+        "name": "Auto-Ladestand"
+      },
+      "car_range_km": {
+        "name": "Auto-Reichweite"
+      },
+      "car_target_soc": {
+        "name": "Auto-Ziel-Ladestand"
       }
     },
     "binary_sensor": {

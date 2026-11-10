@@ -225,6 +225,18 @@
       },
       "heating_setback_hours": {
         "name": "Heat pump set back today"
+      },
+      "gridmeter_until": {
+        "name": "Grid meter readings available until"
+      },
+      "car_soc": {
+        "name": "Car charge"
+      },
+      "car_range_km": {
+        "name": "Car range"
+      },
+      "car_target_soc": {
+        "name": "Car target charge"
       }
     },
     "binary_sensor": {

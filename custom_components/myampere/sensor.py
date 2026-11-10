@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from homeassistant.components.sensor import (SensorDeviceClass, SensorEntity, SensorEntityDescription,
@@ -127,6 +127,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
     for lp in ((coordinator.data or {}).get("evcc") or {}).get("loadpoints") or []:
         entities += [EvccLoadpointSensor(coordinator, lp["id"], key, unit) for key, unit in EVCC_SENSORS]
     entities.append(HeatingSetbackSensor(coordinator))
+    entities.append(GridMeterUntilSensor(coordinator))
+    # cars as they are when the integration starts; a new car comes with a reload
+    for car in ((coordinator.data or {}).get("cars") or {}).get("cars") or []:
+        entities += [CarSensor(coordinator, car["id"], key, unit) for key, unit in CAR_SENSORS]
     async_add_entities(entities)
 
 
@@ -417,3 +421,41 @@ class HeatingSetbackSensor(OpenAmpereEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         return ((self.coordinator.data or {}).get("heating") or {}).get("setback_hours_today")
+
+
+CAR_SENSORS = (("soc", "%"), ("range_km", "km"), ("target_soc", "%"))
+
+
+class CarSensor(OpenAmpereEntity, SensorEntity):
+    """Charge, range and target of a car (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, car_id: str, key: str, unit: str) -> None:
+        super().__init__(coordinator, f"car_{key}")  # on the main device: cars are not myAmpere devices
+        self._attr_unique_id = f"{coordinator.info['installation_id']}_car_{car_id}_{key}"
+        self._car_id, self._key = car_id, key
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = SensorDeviceClass.BATTERY if unit == "%" and key != "target_soc" else None
+
+    @property
+    def native_value(self) -> float | None:
+        cars = ((self.coordinator.data or {}).get("cars") or {}).get("cars") or []
+        car = next((c for c in cars if c["id"] == self._car_id), None)
+        return ((car or {}).get("values") or {}).get(self._key)
+
+
+class GridMeterUntilSensor(OpenAmpereEntity, SensorEntity):
+    """The day up to which the grid meter readings are on (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_device_class = SensorDeviceClass.DATE
+
+    def __init__(self, coordinator: OpenAmpereCoordinator) -> None:
+        super().__init__(coordinator, "gridmeter_until")
+
+    @property
+    def native_value(self) -> date | None:
+        until = ((self.coordinator.data or {}).get("gridmeter") or {}).get("until")
+        return date.fromisoformat(until[:10]) if until else None
