@@ -32,15 +32,26 @@ allein.
 
 ## Entitäten
 
-Die Integration bietet alles, was die offizielle OpenAmpere-Integration anbietet: Leistungs-, Energie- und
-Temperatursensoren, Batteriemodus und -grenzen, Netzladen, den Modus der eigenen Geräte und der Wallboxen, die myAmpere
-selbst steuert.
+Die Integration bietet, was die offizielle OpenAmpere-Integration anbietet: Leistungs-, Energie- und Temperatursensoren,
+Batteriemodus und -grenzen, Netzladen, den Modus der eigenen Geräte und der Wallboxen, die myAmpere selbst steuert.
 
-Dazu kommen der Strompreis Import der aktuellen Viertelstunde, die Solarprognose für heute und morgen und die nächste
-geplante Ladeviertelstunde mit ihrem Grund. Diese sind standardmäßig aus: Schalte in den Einstellungen des Geräts die
-ein, die du brauchst.
+Dazu bietet myAmpere die folgenden Werte an. Sie sind alle standardmäßig aus; schalte in den Einstellungen des Geräts
+die ein, die du brauchst:
 
-Weitere Entitäten kommen Schritt für Schritt, sobald der Server mehr Daten anbietet.
+- Strompreis Import der aktuellen Viertelstunde, die nächsten Viertelstunden stehen in den Attributen
+- Solarprognose für heute und morgen
+- Nächste geplante Ladeviertelstunde mit ihrem Grund
+- Batterie-Gesundheit, Vollzyklen, Wirkungsgrad und heißeste Zelle
+- Je evcc-Ladepunkt: Leistung und Auto-Ladestand
+- Wärmepumpe: heute abgesenkte Stunden, und Leistung und Energie über EEBUS, wenn es eingerichtet ist
+- Je Auto: Ladestand, Reichweite und Ziel-Ladestand
+- Netzzähler: bis wann die Werte verfügbar sind, und Netzbezug und Einspeisung des letzten Tages
+- Einspeisegrenze (nur lesend)
+- Stromausfälle: Anzahl und Gesamtdauer; der letzte Ladevorgang eines Autos
+- Reihenfolge, in der der Solarüberschuss an die eigenen Geräte geht
+
+Evcc-Ladepunkte, Autos und EEBUS, die beim Start der Integration schon da sind, bekommen Entitäten; ein neuer kommt
+mit einem Neuladen der Integration.
 
 ## Entwicklung
 

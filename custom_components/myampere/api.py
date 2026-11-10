@@ -183,6 +183,10 @@ class OpenAmpereClient:
         """The order in which the surplus goes to the own devices (history route, read token)."""
         return await self._request("GET", "/history/surplus-order")
 
+    async def export_limit(self) -> dict:
+        """The feed-in limit of the inverter, read only (history route, read token)."""
+        return await self._request("GET", "/history/export-limit")
+
     async def forecast(self) -> dict:
         """Expected solar energy: day totals and quarter hours, no location (history route, read token)."""
         return await self._request("GET", "/history/forecast")

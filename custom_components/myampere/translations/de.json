@@ -255,6 +255,15 @@
       },
       "surplus_order": {
         "name": "Reihenfolge Solarüberschuss"
+      },
+      "export_limit_w": {
+        "name": "Einspeisegrenze"
+      },
+      "eebus_power_w": {
+        "name": "Wärmepumpe Leistung (EEBUS)"
+      },
+      "eebus_energy_kwh": {
+        "name": "Wärmepumpe Energie (EEBUS)"
       }
     },
     "binary_sensor": {

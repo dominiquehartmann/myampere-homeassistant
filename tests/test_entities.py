@@ -465,3 +465,26 @@ async def test_daily_grid_values_and_the_surplus_order_are_off_until_switched_on
     assert imported.state == "7.5" and imported.attributes["day"] == "2026-11-09"
     assert hass.states.get(ids[1]).state == "3.0"
     assert hass.states.get(ids[2]).state == "Speicher > Warmwasser"
+
+
+async def test_the_feed_in_limit_is_read_and_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: the feed-in limit is shown in Home Assistant, read only, and off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    limit_id = entity_id(hass, "sensor", "export_limit_w")
+    assert limit_id is not None and registry.async_get(limit_id).disabled_by is not None
+    registry.async_update_entity(limit_id, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(limit_id).state == "5000"
+
+
+def test_a_new_loadpoint_or_car_asks_for_a_reload() -> None:
+    """#6: evcc loadpoints and cars get their entities at the setup; one that comes later needs a reload."""
+    from custom_components.myampere.coordinator import needs_reload
+
+    info = {"evcc_ids": [1], "car_ids": ["car1"], "eebus": False}
+    assert not needs_reload(info, None, evcc=[1], cars=["car1"], eebus=False)
+    assert needs_reload(info, None, evcc=[1, 2], cars=["car1"], eebus=False)
+    assert needs_reload(info, None, evcc=[1], cars=["car1", "car2"], eebus=False)
+    assert needs_reload(info, None, evcc=[1], cars=["car1"], eebus=True)

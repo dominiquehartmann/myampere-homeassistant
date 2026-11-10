@@ -57,8 +57,11 @@ class OpenAmpereCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._follow_firmware()
         super().async_update_listeners()
         data = self.data or {}
-        if not self._reload_scheduled and self.config_entry and needs_reload(self.info, data.get("live"),
-                                                                           data.get("wallboxes"), data.get("status")):
+        if not self._reload_scheduled and self.config_entry and needs_reload(
+                self.info, data.get("live"), data.get("wallboxes"), data.get("status"),
+                evcc=[lp["id"] for lp in ((data.get("evcc") or {}).get("loadpoints") or [])],
+                cars=[c["id"] for c in ((data.get("cars") or {}).get("cars") or [])],
+                eebus=((data.get("heating") or {}).get("eebus") is not None)):
             self._reload_scheduled = True
             self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
@@ -107,6 +110,7 @@ class OpenAmpereCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "heating": await self._cached("heating", self.client.heating, EVCC_S),
                 "gridmeter": await self._cached("gridmeter", self.client.gridmeter, HEALTH_S),
                 "cars": await self._cached("cars", self.client.cars, EVCC_S),
+                "export_limit": await self._cached("export_limit", self.client.export_limit, PLAN_S),
                 "outages": await self._cached("outages", self.client.outages, EVCC_S),
                 "charging_sessions": await self._cached("charging_sessions", self.client.charging_sessions, EVCC_S),
                 "gridmeter_days": await self._cached("gridmeter_days", self.client.gridmeter_days, HEALTH_S),
@@ -155,7 +159,8 @@ def firmware(coordinator: OpenAmpereCoordinator) -> str | None:
     return (coordinator.info.get("device") or {}).get("firmware")
 
 
-def needs_reload(info: dict, live: dict | None, wallboxes: list | None = None, status: dict | None = None) -> bool:
+def needs_reload(info: dict, live: dict | None, wallboxes: list | None = None, status: dict | None = None, *,
+                 evcc: list | None = None, cars: list | None = None, eebus: bool | None = None) -> bool:
     """Set up before myAmpere had its first reading (e.g. everything starting after a power cut): the device and
     the PV inputs were unknown, so set up again once they are there (#220). Also when a wallbox was added or removed
     in myAmpere (#388), or a second PV inverter switched on, off or renamed (#419); an older myAmpere sends
@@ -167,6 +172,13 @@ def needs_reload(info: dict, live: dict | None, wallboxes: list | None = None, s
         return True
     if wallboxes is not None and "wallboxes" in info \
             and sorted(w["id"] for w in wallboxes) != sorted(w["id"] for w in info["wallboxes"]):
+        return True
+    # evcc loadpoints, cars and EEBUS get their entities at the setup: a new one comes with a reload (#6)
+    if evcc is not None and "evcc_ids" in info and sorted(evcc) != sorted(info["evcc_ids"]):
+        return True
+    if cars is not None and "car_ids" in info and sorted(cars) != sorted(info["car_ids"]):
+        return True
+    if eebus is not None and "eebus" in info and eebus != info["eebus"]:
         return True
     if not live:
         return False

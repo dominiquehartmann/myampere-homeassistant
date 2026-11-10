@@ -255,6 +255,15 @@
       },
       "surplus_order": {
         "name": "Surplus order"
+      },
+      "export_limit_w": {
+        "name": "Feed-in limit"
+      },
+      "eebus_power_w": {
+        "name": "Heat pump power (EEBUS)"
+      },
+      "eebus_energy_kwh": {
+        "name": "Heat pump energy (EEBUS)"
       }
     },
     "binary_sensor": {

@@ -123,17 +123,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
     entities += [ForecastSensor(coordinator, "today_kwh"), ForecastSensor(coordinator, "tomorrow_kwh")]
     entities.append(ChargingPlanSensor(coordinator))
     entities += [BatteryHealthSensor(coordinator, key, unit) for key, unit in HEALTH_SENSORS]
-    # evcc loadpoints as they are when the integration starts; a new one comes with a reload
-    for lp in ((coordinator.data or {}).get("evcc") or {}).get("loadpoints") or []:
+    # evcc loadpoints, cars and EEBUS as they are when the integration starts; a new one comes with a reload
+    loadpoints = ((coordinator.data or {}).get("evcc") or {}).get("loadpoints") or []
+    cars = ((coordinator.data or {}).get("cars") or {}).get("cars") or []
+    coordinator.info["evcc_ids"] = [lp["id"] for lp in loadpoints]
+    coordinator.info["car_ids"] = [car["id"] for car in cars]
+    coordinator.info["eebus"] = ((coordinator.data or {}).get("heating") or {}).get("eebus") is not None
+    for lp in loadpoints:
         entities += [EvccLoadpointSensor(coordinator, lp["id"], key, unit) for key, unit in EVCC_SENSORS]
-    entities.append(HeatingSetbackSensor(coordinator))
-    entities += [GridMeterUntilSensor(coordinator), OutageSensor(coordinator, "count"),
-                 OutageSensor(coordinator, "total_s"), LastChargeSensor(coordinator, "energy_kwh"),
-                 LatestGridDaySensor(coordinator, "import"), LatestGridDaySensor(coordinator, "export"),
-                 SurplusOrderSensor(coordinator)]
-    # cars as they are when the integration starts; a new car comes with a reload
-    for car in ((coordinator.data or {}).get("cars") or {}).get("cars") or []:
+    for car in cars:
         entities += [CarSensor(coordinator, car["id"], key, unit) for key, unit in CAR_SENSORS]
+    if coordinator.info["eebus"]:
+        entities += [EebusSensor(coordinator, "power_w", "W"), EebusSensor(coordinator, "energy_kwh", "kWh")]
+    entities += [HeatingSetbackSensor(coordinator), ExportLimitSensor(coordinator), GridMeterUntilSensor(coordinator),
+                 OutageSensor(coordinator, "count"), OutageSensor(coordinator, "total_s"),
+                 LastChargeSensor(coordinator, "energy_kwh"), LatestGridDaySensor(coordinator, "import"),
+                 LatestGridDaySensor(coordinator, "export"), SurplusOrderSensor(coordinator)]
     async_add_entities(entities)
 
 
@@ -556,3 +561,36 @@ class SurplusOrderSensor(OpenAmpereEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         return {"items": self._items()}
+
+
+class ExportLimitSensor(OpenAmpereEntity, SensorEntity):
+    """The feed-in limit of the inverter in W, read only (#6). Off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_device_class = SensorDeviceClass.POWER
+
+    def __init__(self, coordinator: OpenAmpereCoordinator) -> None:
+        super().__init__(coordinator, "export_limit_w")
+
+    @property
+    def native_value(self) -> float | None:
+        return ((self.coordinator.data or {}).get("export_limit") or {}).get("limit_w")
+
+
+class EebusSensor(OpenAmpereEntity, SensorEntity):
+    """Power or energy of the heat pump through EEBUS (#6). Only when EEBUS is set up; off by default."""
+
+    _attr_entity_registry_enabled_default = False
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, key: str, unit: str) -> None:
+        super().__init__(coordinator, f"eebus_{key}")
+        self._key = key
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = SensorDeviceClass.POWER if unit == "W" else SensorDeviceClass.ENERGY
+
+    @property
+    def native_value(self) -> float | None:
+        eebus = ((self.coordinator.data or {}).get("heating") or {}).get("eebus") or {}
+        return eebus.get(self._key)

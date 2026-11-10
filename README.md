@@ -29,14 +29,26 @@ If a new certificate of the server comes up, pair again: the integration never a
 
 ## Entities
 
-The integration offers everything the official OpenAmpere integration offers: power, energy and temperature sensors,
-the battery mode and limits, grid charging, the mode of the own devices and the wallboxes that myAmpere controls.
+The integration offers what the official OpenAmpere integration offers: power, energy and temperature sensors, the
+battery mode and limits, grid charging, the mode of the own devices and the wallboxes that myAmpere controls.
 
-Additionally it offers the import price of the current quarter hour, the solar forecast for today and tomorrow and the
-next planned grid-charging quarter hour with its reason. These are switched off by default: switch on the ones you
-need under the entity settings of the device.
+Additionally, myAmpere offers these, all switched off by default (switch them on under the entity settings of the
+device):
 
-Entities are added step by step as the server offers more data; the list in the integration is the one that counts.
+- Import price of the current quarter hour, with the next quarter hours as attributes
+- Solar forecast for today and tomorrow
+- Next planned grid-charging quarter hour, with its reason
+- Battery state of health, full cycles, efficiency and the hottest cell
+- Each evcc loadpoint: power and car charge
+- Heat pump: hours set back today, and power and energy through EEBUS when it is set up
+- Each car: charge, range and target charge
+- Grid meter: until when the readings are available, and the grid import and export of the latest day
+- Feed-in limit (read only)
+- Power cuts: number and total duration; the last car charge
+- Order in which the surplus goes to the own devices
+
+Entities of evcc loadpoints, cars and EEBUS that exist when the integration starts are added; a new one comes with a
+reload of the integration.
 
 ## Development
 
