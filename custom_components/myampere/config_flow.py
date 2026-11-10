@@ -1,0 +1,286 @@
+# SPDX-FileCopyrightText: Copyright the myAmpere contributors
+# SPDX-License-Identifier: MIT
+"""Setup: pair with myAmpere by comparing a code, or paste a connection code.
+
+Pairing: Home Assistant reads the certificate myAmpere shows, commits to a random number, learns OpenAmpere's
+number and reveals its own. Both sides compute six digits from the certificate they see and both numbers; you
+compare them and allow the connection in myAmpere (Mehr → Verbundene Apps). Then Home Assistant gets its token.
+If someone sits in between, the codes differ. That protects OpenAmpere's token; Home Assistant itself cannot tell
+whether the answer "allowed" came from myAmpere or from another device at the same address. So it stores the
+connection only after you confirm here that myAmpere showed this code (GHSA-8f28-gpm6-w56g). The connection code
+(made in myAmpere) holds address, port, certificate fingerprint and token in one string.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import re
+import secrets
+import time
+from collections.abc import Mapping
+from typing import Any
+
+import voluptuous as vol
+from homeassistant.config_entries import (SOURCE_HASSIO, SOURCE_REAUTH, ConfigFlow, ConfigFlowResult,
+                                          OptionsFlowWithReload)
+from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
+
+from .api import (CannotConnect, CertificateMismatch, Connection, InvalidAuth, OpenAmpereClient, OpenAmpereError,
+                  fetch_fingerprint, pairing_code, parse_code)
+from .app import CONF_APP_SLUG
+from .const import (API_VERSION, CONF_CODE, CONF_FINGERPRINT, CONF_MIN_INTERVAL, CONF_TOKEN, DEFAULT_MIN_INTERVAL_S,
+                    DOMAIN)
+
+DEFAULT_PORT = 8443
+# Home Assistant shows the text of a form as Markdown, and the server is not confirmed yet while pairing: only plain
+# sentences of the server are shown, no links, images or formatting (GHSA-vx3h-6qm5-fqr2)
+PLAIN = re.compile(r"(?:[^\W_]|[ .,;:?%()„“\"'–-]){1,200}")
+
+
+def plain_detail(text: str) -> str:
+    """The server's message if it is a plain sentence, else a dash."""
+    text = " ".join(text.split())
+    return text if PLAIN.fullmatch(text) else "–"
+PAIRING_TIMEOUT_S = 600
+POLL_S = 2
+
+
+class PairingRejected(Exception):
+    pass
+
+
+class OpenAmpereConfigFlow(ConfigFlow, domain=DOMAIN):
+    VERSION = 1
+
+    def __init__(self) -> None:
+        self._connection: Connection | None = None
+        self._pairing: dict[str, Any] = {}
+        self._code = ""
+        self._task: asyncio.Task | None = None
+        self._failure = "pairing_rejected"
+        self._failure_detail = ""
+        self._discovered: Connection | None = None  # the Home Assistant app, as the Supervisor announced it
+        self._app_slug: str | None = None
+
+    # ---- start -----------------------------------------------------------------------------------------------
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="user", menu_options=["pair", "code"])
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Access removed in myAmpere or a new certificate: pair again or paste a new code."""
+        return self.async_show_menu(step_id="reauth_confirm", menu_options=["pair", "code"])
+
+    async def async_step_hassio(self, discovery_info: HassioServiceInfo) -> ConfigFlowResult:
+        """The myAmpere app of this Home Assistant announced itself (#300): its address in the internal network,
+        the HTTPS port and the certificate come from the Supervisor. Pairing works as usual, without typing an
+        address.
+
+        A known myAmpere only gets the new address while its certificate stays the same. Any app can announce
+        itself as "openampere" with a known installation id: taking over another certificate would send the token
+        to it. With a new certificate (e.g. moved from Docker to the app with a backup) it is paired again."""
+        config = discovery_info.config
+        self._discovered = Connection(str(config["host"]), int(config["port"]), str(config["fingerprint"]), "")
+        self._app_slug = discovery_info.slug  # to notice when the app is uninstalled (app.py)
+        await self.async_set_unique_id(str(config["installation_id"]))
+        self.context["title_placeholders"] = {"name": "myAmpere"}  # the card under "Discovered"
+        entry = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, self.unique_id)
+        if entry is not None and entry.data.get(CONF_FINGERPRINT) == self._discovered.fingerprint:
+            self._abort_if_unique_id_configured(updates={CONF_HOST: self._discovered.host,
+                                                         CONF_PORT: self._discovered.port,
+                                                         CONF_APP_SLUG: self._app_slug})
+        return await self.async_step_hassio_confirm()
+
+    async def async_step_hassio_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is None:
+            self._set_confirm_only()
+            return self.async_show_form(step_id="hassio_confirm")
+        assert self._discovered is not None
+        return await self.async_step_pair({CONF_HOST: self._discovered.host, CONF_PORT: self._discovered.port})
+
+    def _default_host(self) -> str:
+        if self._discovered:
+            return self._discovered.host
+        return self._get_reauth_entry().data[CONF_HOST] if self.source == SOURCE_REAUTH else ""
+
+    def _default_port(self) -> int:
+        if self._discovered:
+            return self._discovered.port
+        return self._get_reauth_entry().data.get(CONF_PORT, DEFAULT_PORT) if self.source == SOURCE_REAUTH \
+            else DEFAULT_PORT
+
+    def _known_fingerprint(self) -> str | None:
+        """The certificate Home Assistant already trusts for this myAmpere, if it knows it."""
+        if self.source == SOURCE_REAUTH:
+            return self._get_reauth_entry().data.get(CONF_FINGERPRINT)
+        entry = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, self.unique_id) \
+            if self.unique_id else None
+        return entry.data.get(CONF_FINGERPRINT) if entry else None
+
+    async def _finish(self, installation_id: str, data: dict[str, Any]) -> ConfigFlowResult:
+        await self.async_set_unique_id(installation_id)
+        if self.source == SOURCE_REAUTH:
+            self._abort_if_unique_id_mismatch(reason="wrong_server")
+            return self.async_update_reload_and_abort(self._get_reauth_entry(), data=data)
+        entry = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, installation_id)
+        if self.source == SOURCE_HASSIO and entry is not None:
+            # paired again with the app (code compared): the entry keeps its entities, now with the app
+            return self.async_update_reload_and_abort(entry, data=data, reason="app_connected")
+        self._abort_if_unique_id_configured(updates=data)
+        return self.async_create_entry(title="myAmpere", data=data)
+
+    def _data(self, connection: Connection) -> dict[str, Any]:
+        data = {CONF_HOST: connection.host, CONF_PORT: connection.port, CONF_FINGERPRINT: connection.fingerprint,
+                CONF_TOKEN: connection.token}
+        if self._app_slug:
+            data[CONF_APP_SLUG] = self._app_slug
+        return data
+
+    # ---- connection code -------------------------------------------------------------------------------------
+
+    async def async_step_code(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                connection = parse_code(user_input[CONF_CODE])
+            except ValueError:
+                errors[CONF_CODE] = "invalid_code"
+            else:
+                if user_input.get(CONF_HOST, "").strip():
+                    connection.host = user_input[CONF_HOST].strip()
+                try:
+                    info = await OpenAmpereClient(async_get_clientsession(self.hass), connection).info()
+                except InvalidAuth:
+                    errors["base"] = "invalid_auth"
+                except CertificateMismatch:
+                    errors["base"] = "certificate_mismatch"
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                except OpenAmpereError:
+                    errors["base"] = "unknown"
+                else:
+                    if info.get("api_version") != API_VERSION:
+                        errors["base"] = "unsupported_version"
+                    else:
+                        return await self._finish(info["installation_id"], self._data(connection))
+        schema = vol.Schema({vol.Required(CONF_CODE): str, vol.Optional(CONF_HOST, default=self._default_host()): str})
+        return self.async_show_form(step_id="code", data_schema=schema, errors=errors)
+
+    # ---- pairing ---------------------------------------------------------------------------------------------
+
+    async def async_step_pair(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            host, port = user_input[CONF_HOST].strip(), int(user_input[CONF_PORT])
+            try:
+                fingerprint = await fetch_fingerprint(host, port)
+                if self._discovered and (host, port) == (self._discovered.host, self._discovered.port) \
+                        and fingerprint != self._discovered.fingerprint:
+                    raise CertificateMismatch("not the certificate the app announced")
+                connection = Connection(host, port, fingerprint, "")
+                client = OpenAmpereClient(async_get_clientsession(self.hass), connection)
+                nonce = secrets.token_bytes(32)
+                started = await client.pair_start("Home Assistant", hashlib.sha256(nonce).hexdigest())
+                if started.get("api_version") != API_VERSION:
+                    errors["base"] = "unsupported_version"
+                else:
+                    await self.async_set_unique_id(started["installation_id"])
+                    if self.source == SOURCE_REAUTH:
+                        self._abort_if_unique_id_mismatch(reason="wrong_server")
+                    elif self.source != SOURCE_HASSIO:  # the app may pair a known myAmpere again (see above)
+                        self._abort_if_unique_id_configured()
+                    await client.pair_reveal(started["request_id"], started["poll_key"], nonce.hex())
+                    self._connection, self._pairing = connection, started
+                    self._code = pairing_code(fingerprint, nonce, bytes.fromhex(started["nonce"]))
+                    return await self.async_step_wait()
+            except CertificateMismatch:
+                errors["base"] = "certificate_mismatch"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except OpenAmpereError as err:
+                # e.g. too many open requests: OpenAmpere's own words
+                errors["base"] = "pairing_failed"
+                self._failure_detail = plain_detail(str(err))
+        schema = vol.Schema({vol.Required(CONF_HOST, default=self._default_host()): str,
+                             vol.Required(CONF_PORT, default=self._default_port()):
+                                 vol.All(vol.Coerce(int), vol.Range(1, 65535))})
+        return self.async_show_form(step_id="pair", data_schema=schema, errors=errors,
+                                    description_placeholders={"detail": self._failure_detail})
+
+    async def _wait_for_approval(self) -> str:
+        assert self._connection is not None
+        client = OpenAmpereClient(async_get_clientsession(self.hass), self._connection)
+        deadline = time.monotonic() + PAIRING_TIMEOUT_S
+        while time.monotonic() < deadline:
+            await asyncio.sleep(POLL_S)
+            try:
+                status = await client.pair_status(self._pairing["request_id"], self._pairing["poll_key"])
+            except CannotConnect:
+                continue  # e.g. a short Wi-Fi hiccup
+            except OpenAmpereError as err:  # gone: expired or myAmpere restarted
+                self._failure = "pairing_expired"
+                raise PairingRejected from err
+            if status["status"] == "approved":
+                return status["token"]
+            if status["status"] == "rejected":
+                raise PairingRejected
+        self._failure = "pairing_expired"
+        raise PairingRejected
+
+    async def async_step_wait(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if self._task is None:
+            self._task = self.hass.async_create_task(self._wait_for_approval())
+        if not self._task.done():
+            return self.async_show_progress(step_id="wait", progress_action="wait_for_approval",
+                                            progress_task=self._task,
+                                            description_placeholders={"code": f"{self._code[:3]} {self._code[3:]}"})
+        try:
+            self._connection.token = self._task.result()
+        except PairingRejected:
+            return self.async_show_progress_done(next_step_id="failed")
+        known = self._known_fingerprint()
+        new_certificate = known is not None and known != self._connection.fingerprint
+        return self.async_show_progress_done(next_step_id="confirm_new_certificate" if new_certificate
+                                             else "confirm_code")
+
+    async def async_step_confirm_code(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """The answer "allowed" may come from any device at the address: stored only once you confirm the code."""
+        if user_input is None:
+            return self._confirm_form("confirm_code")
+        return await self._finish(self._pairing["installation_id"], self._data(self._connection))
+
+    async def async_step_confirm_new_certificate(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """As confirm_code, with a warning: this myAmpere shows another certificate than the one Home Assistant
+        knows (expected after reinstalling it or moving it to another device)."""
+        if user_input is None:
+            return self._confirm_form("confirm_new_certificate")
+        return await self._finish(self._pairing["installation_id"], self._data(self._connection))
+
+    def _confirm_form(self, step_id: str) -> ConfigFlowResult:
+        return self.async_show_form(step_id=step_id, data_schema=vol.Schema({}),
+                                    description_placeholders={"code": f"{self._code[:3]} {self._code[3:]}"})
+
+    async def async_step_failed(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_abort(reason=self._failure)
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry) -> OpenAmpereOptionsFlow:
+        return OpenAmpereOptionsFlow()
+
+
+class OpenAmpereOptionsFlow(OptionsFlowWithReload):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        current = self.config_entry.options.get(CONF_MIN_INTERVAL, DEFAULT_MIN_INTERVAL_S)
+        return self.async_show_form(step_id="init", data_schema=vol.Schema({
+            vol.Required(CONF_MIN_INTERVAL, default=current): vol.All(vol.Coerce(int), vol.Range(min=0, max=300)),
+        }))

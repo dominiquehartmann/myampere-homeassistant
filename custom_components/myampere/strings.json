@@ -1,0 +1,306 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "myAmpere",
+        "description": "myAmpere must already be running (e.g. on your Raspberry Pi). How do you want to connect?",
+        "menu_options": {
+          "pair": "Pair with myAmpere (recommended)",
+          "code": "Paste a connection code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Connect again",
+        "description": "The access was removed in myAmpere or its certificate changed.",
+        "menu_options": {
+          "pair": "Pair with myAmpere",
+          "code": "Paste a connection code"
+        }
+      },
+      "pair": {
+        "title": "Pair with myAmpere",
+        "description": "Enter the address myAmpere runs on. Then Home Assistant and myAmpere show the same 6-digit code, which you confirm in myAmpere.",
+        "data": {
+          "host": "Address",
+          "port": "HTTPS port"
+        },
+        "data_description": {
+          "host": "IP address or name of the device myAmpere runs on, e.g. 192.168.178.20 – without http:// and without :8080.",
+          "port": "Default 8443. Only change it if you changed it in myAmpere."
+        }
+      },
+      "confirm_code": {
+        "title": "Confirm the code",
+        "description": "myAmpere reports that the connection was allowed.\n\n**Code: {code}**\n\nOnly continue if you just allowed the request from “Home Assistant” in myAmpere (Mehr → Verbundene Apps) and it showed exactly this code. If you did not allow anything there or the code was different, close this window: another device may be answering at this address."
+      },
+      "confirm_new_certificate": {
+        "title": "Confirm the code – new certificate",
+        "description": "myAmpere now shows a different certificate than the one Home Assistant knows. That is expected after myAmpere was installed again or moved to another device, otherwise not.\n\n**Code: {code}**\n\nOnly continue if you just allowed the request from “Home Assistant” in myAmpere (Mehr → Verbundene Apps) and it showed exactly this code. If in doubt, close this window, create a connection code in myAmpere and choose “Paste a connection code”."
+      },
+      "code": {
+        "title": "Paste a connection code",
+        "description": "Create an access in myAmpere under Mehr → Verbundene Apps and paste the connection code here.",
+        "data": {
+          "code": "Connection code",
+          "host": "Address (optional)"
+        },
+        "data_description": {
+          "code": "Create it in myAmpere under Mehr → Verbundene Apps (More → Connected apps).",
+          "host": "Only if Home Assistant reaches myAmpere under a different address than your browser, e.g. the Raspberry Pi's IP address."
+        }
+      },
+      "hassio_confirm": {
+        "title": "myAmpere app found",
+        "description": "The myAmpere app of this Home Assistant is running. Next, Home Assistant and myAmpere show the same 6-digit code. Confirm it in myAmpere: open it in the sidebar, then More → Connected apps."
+      }
+    },
+    "error": {
+      "invalid_code": "This is not a valid connection code. Please copy it completely.",
+      "invalid_auth": "The access is invalid or was removed.",
+      "certificate_mismatch": "The certificate does not match the code. Is this really your myAmpere? Otherwise create a new code.",
+      "cannot_connect": "Cannot reach myAmpere. Check the address and the HTTPS port (default 8443).",
+      "unsupported_version": "myAmpere and the integration do not match. Please update both.",
+      "unknown": "Unexpected error.",
+      "pairing_failed": "myAmpere did not accept the request: {detail}"
+    },
+    "abort": {
+      "already_configured": "This myAmpere is already set up.",
+      "reauth_successful": "Connection renewed.",
+      "wrong_server": "The code belongs to a different myAmpere.",
+      "pairing_rejected": "The pairing was rejected in myAmpere.",
+      "pairing_expired": "The request expired (10 minutes). Please start again.",
+      "app_connected": "myAmpere is connected again, now as the Home Assistant app. Entities and their history stay."
+    },
+    "progress": {
+      "wait_for_approval": "Open myAmpere → Mehr → Verbundene Apps. There is a request from “Home Assistant”.\n\n**Code: {code}**\n\nOnly allow the connection if myAmpere shows exactly this code. If it shows a different one, reject it."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Live values",
+        "data": {
+          "min_interval": "Minimum time between live values (seconds)"
+        },
+        "data_description": {
+          "min_interval": "0 = take every value myAmpere sends. Higher values spare small systems such as a Raspberry Pi with an SD card."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pv_power": {
+        "name": "PV power"
+      },
+      "house_power": {
+        "name": "House consumption"
+      },
+      "grid_power": {
+        "name": "Grid power"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_soc": {
+        "name": "State of charge"
+      },
+      "battery_soh": {
+        "name": "Battery health"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "battery_current": {
+        "name": "Battery current"
+      },
+      "battery_temperature": {
+        "name": "Battery temperature"
+      },
+      "inverter_temperature": {
+        "name": "Inverter temperature"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "token_days_left": {
+        "name": "Enphase token valid for"
+      },
+      "pv_energy": {
+        "name": "PV production"
+      },
+      "consumption_energy": {
+        "name": "Consumption"
+      },
+      "load_energy": {
+        "name": "Consumption counter of the inverter"
+      },
+      "grid_import_energy": {
+        "name": "Grid import"
+      },
+      "grid_export_energy": {
+        "name": "Grid export"
+      },
+      "battery_charge_energy": {
+        "name": "Battery charged"
+      },
+      "battery_discharge_energy": {
+        "name": "Battery discharged"
+      },
+      "price": {
+        "name": "Electricity price"
+      },
+      "pv_input_power": {
+        "name": "{name}"
+      },
+      "pv_external_power": {
+        "name": "{name}"
+      },
+      "pv_external_energy": {
+        "name": "{name} production"
+      },
+      "device_power": {
+        "name": "Power"
+      },
+      "device_temperature": {
+        "name": "Temperature"
+      },
+      "control": {
+        "name": "Control",
+        "state": {
+          "off": "View only",
+          "test": "Test mode",
+          "active": "Active"
+        }
+      },
+      "wallbox_power": {
+        "name": "Charging power"
+      },
+      "wallbox_state": {
+        "name": "State",
+        "state": {
+          "idle": "No car",
+          "plugged_in": "Car plugged in",
+          "charging": "Charging",
+          "waiting": "Waiting",
+          "paused": "Paused",
+          "finished": "Charging finished",
+          "fault": "Fault",
+          "unknown": "Unknown"
+        }
+      },
+      "wallbox_current": {
+        "name": "Charging current set"
+      },
+      "import_price": {
+        "name": "Import price (current quarter hour)"
+      },
+      "forecast_today_kwh": {
+        "name": "Solar forecast today"
+      },
+      "forecast_tomorrow_kwh": {
+        "name": "Solar forecast tomorrow"
+      },
+      "charging_plan": {
+        "name": "Charging plan: next quarter hour"
+      }
+    },
+    "binary_sensor": {
+      "inverter_connected": {
+        "name": "Inverter connected"
+      },
+      "off_grid": {
+        "name": "Off-grid (power cut)"
+      },
+      "grid_charging_active": {
+        "name": "Charging from the grid"
+      },
+      "alarm": {
+        "name": "Alarm"
+      },
+      "live_connection": {
+        "name": "Live connection"
+      },
+      "device_on": {
+        "name": "On"
+      },
+      "wallbox_online": {
+        "name": "Reachable"
+      },
+      "wallbox_plugged_in": {
+        "name": "Car plugged in"
+      },
+      "wallbox_charging": {
+        "name": "Charging"
+      }
+    },
+    "select": {
+      "work_mode": {
+        "name": "Work mode",
+        "state": {
+          "self_use": "Self-use",
+          "feed_in_first": "Feed-in first",
+          "backup": "Backup",
+          "peak_shaving": "Peak shaving"
+        }
+      },
+      "device_mode": {
+        "name": "Mode",
+        "state": {
+          "auto": "Automatic (surplus)",
+          "off": "Off",
+          "boost": "Boost (full power)"
+        }
+      },
+      "wallbox_mode": {
+        "name": "Charging mode",
+        "state": {
+          "manual": "Manual",
+          "off": "Off",
+          "pv": "Solar",
+          "minpv": "Min + Solar",
+          "now": "Fast"
+        }
+      }
+    },
+    "number": {
+      "min_soc_on_grid": {
+        "name": "Backup reserve"
+      },
+      "max_soc": {
+        "name": "Charge limit"
+      },
+      "min_soc": {
+        "name": "Outage floor"
+      },
+      "backup_soc": {
+        "name": "Reserve in backup mode"
+      },
+      "grid_charging_target": {
+        "name": "Grid charging target"
+      },
+      "wallbox_mode_current": {
+        "name": "Highest charging current"
+      }
+    },
+    "switch": {
+      "grid_charging": {
+        "name": "Grid charging"
+      }
+    }
+  },
+  "issues": {
+    "app_removed": {
+      "title": "The myAmpere app was removed",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Remove the myAmpere integration?",
+            "description": "The myAmpere app is no longer installed, so “{title}” has nothing to connect to. Remove the integration with its devices and entities? Their history stays in Home Assistant. If you install the app again, Home Assistant finds it again."
+          }
+        }
+      }
+    }
+  }
+}

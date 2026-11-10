@@ -1,0 +1,393 @@
+# SPDX-FileCopyrightText: Copyright the OpenAmpere contributors
+# SPDX-License-Identifier: MIT
+"""Entities: values from OpenAmpere, push updates, commands, read-only access, diagnostics."""
+
+from __future__ import annotations
+
+import pytest
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+
+from custom_components.myampere.api import CannotConnect, InvalidAuth, OpenAmpereError
+from custom_components.myampere.coordinator import MAX_MISSED_STATES
+from custom_components.myampere.diagnostics import async_get_config_entry_diagnostics
+
+from conftest import INSTALLATION, info, state
+
+
+async def setup(hass: HomeAssistant, entry) -> None:
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+def entity_id(hass: HomeAssistant, platform: str, key: str) -> str | None:
+    registry = er.async_get(hass)
+    return next((e.entity_id for e in registry.entities.values() if e.domain == platform and e.unique_id.endswith(key)), None)
+
+
+async def test_sensors(hass: HomeAssistant, entry, client) -> None:
+    await setup(hass, entry)
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(entity_id(hass, "sensor", "_pv_power")).state == "5200.0"
+    grid = hass.states.get(entity_id(hass, "sensor", "_grid_power"))
+    assert grid.state == "-3400.0" and grid.attributes["unit_of_measurement"] == "W"
+    # lifetime counters for the energy dashboard, shown in kWh
+    energy = hass.states.get(entity_id(hass, "sensor", "_grid_export_energy"))
+    assert energy.attributes["unit_of_measurement"] == "kWh" and energy.attributes["state_class"] == "total_increasing"
+    assert float(energy.state) == pytest.approx(456.789)
+    # consumption from the balance of the other counters (#346); the inverter's load counter only on request
+    assert float(hass.states.get(entity_id(hass, "sensor", "_consumption_energy")).state) == pytest.approx(1112.345)
+    assert er.async_get(hass).async_get(entity_id(hass, "sensor", "_load_energy")).disabled_by is not None
+    assert hass.states.get(entity_id(hass, "sensor", "_pv_input_1_power")).state == "2200.0"
+    assert hass.states.get(entity_id(hass, "sensor", "_price")).state == "31.5"
+    assert hass.states.get(entity_id(hass, "sensor", "_control")).state == "active"
+    assert hass.states.get(entity_id(hass, "sensor", "rod1_device_temperature")).state == "52.5"
+    assert hass.states.get(entity_id(hass, "binary_sensor", "_off_grid")).state == "off"
+    assert hass.states.get(entity_id(hass, "binary_sensor", "rod1_device_on")).state == "on"
+    client.listen.assert_called_once()
+
+
+async def test_push_updates_live_values(hass: HomeAssistant, entry, client) -> None:
+    await setup(hass, entry)
+    coordinator = entry.runtime_data
+    live = {**coordinator.data["live"], "pv_power": 6100.0, "off_grid": True}
+    coordinator._on_push({"type": "live", "live": live, "status": {**coordinator.data["status"], "off_grid": True},
+                          "devices": coordinator.data["devices"]})
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id(hass, "sensor", "_pv_power")).state == "6100.0"
+    assert hass.states.get(entity_id(hass, "binary_sensor", "_off_grid")).state == "on"
+    assert coordinator.data["battery_settings"]["min_soc_on_grid"] == 24  # kept from the last full update
+
+
+
+async def test_firmware_follows_an_update_of_the_inverter(hass: HomeAssistant, entry, client) -> None:
+    """#372: a diagnostic sensor for automations, and the device info no longer stays at the firmware of the setup."""
+    await setup(hass, entry)
+    firmware = entity_id(hass, "sensor", "_firmware")
+    assert hass.states.get(firmware).state == "1.40"
+    assert er.async_get(hass).async_get(firmware).entity_category == "diagnostic"
+    coordinator = entry.runtime_data
+    coordinator._on_push({"type": "live", "live": coordinator.data["live"],
+                          "status": {**coordinator.data["status"], "firmware": "1.50"}})
+    await hass.async_block_till_done()
+    assert hass.states.get(firmware).state == "1.50"
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    assert [d.hw_version for d in devices if ("myampere", INSTALLATION) in d.identifiers] == ["1.50"]
+
+
+async def test_firmware_from_an_older_openampere(hass: HomeAssistant, entry, client) -> None:
+    """An OpenAmpere before #372 has the firmware only in /info."""
+    old = state()
+    del old["status"]["firmware"]
+    client.state.return_value = old
+    await setup(hass, entry)
+    assert hass.states.get(entity_id(hass, "sensor", "_firmware")).state == "1.40"
+
+
+async def test_the_days_left_of_an_enphase_token(hass: HomeAssistant, entry, client) -> None:
+    """#538: a diagnostic sensor for an automation that reminds the owner; only when the device has a token."""
+    with_token = state()
+    with_token["status"]["token_days_left"] = 12
+    client.state.return_value = with_token
+    await setup(hass, entry)
+    days = entity_id(hass, "sensor", "_token_days_left")
+    assert hass.states.get(days).state == "12"
+    assert er.async_get(hass).async_get(days).entity_category == "diagnostic"
+    coordinator = entry.runtime_data
+    coordinator._on_push({"type": "live", "live": coordinator.data["live"],
+                          "status": {**coordinator.data["status"], "token_days_left": -1}})
+    await hass.async_block_till_done()
+    assert hass.states.get(days).state == "-1"  # ran out: the gateway refuses every request now
+
+
+async def test_no_token_sensor_for_a_device_without_one(hass: HomeAssistant, entry, client) -> None:
+    await setup(hass, entry)
+    assert entity_id(hass, "sensor", "_token_days_left") is None
+
+
+def test_a_token_that_comes_or_goes_sets_the_integration_up_again() -> None:
+    """The sensor of the days left is made at the setup: a token added or removed later needs a new setup."""
+    from custom_components.myampere.coordinator import needs_reload
+    live = state()["live"]
+    assert not needs_reload(info(), live, status={"token_days_left": 12})  # set up by a version without the sensor
+    assert needs_reload({**info(), "token_sensor": False}, live, status={"token_days_left": 12})
+    assert needs_reload({**info(), "token_sensor": True}, live, status={"token_days_left": None})
+    assert not needs_reload({**info(), "token_sensor": True}, live, status={"token_days_left": -3})
+    assert not needs_reload({**info(), "token_sensor": False}, live, status={"firmware": "1.40"})  # an older OpenAmpere
+
+
+async def test_alarm_only_for_fault_codes_other_than_0(hass: HomeAssistant, entry, client) -> None:
+    """#330: the inverter reports every fault word, all of them 0 without a fault."""
+    await setup(hass, entry)
+    alarm = entity_id(hass, "binary_sensor", "_alarm")
+    assert hass.states.get(alarm).state == "off"
+    assert hass.states.get(alarm).attributes["codes"] == [0, 0, 0]
+
+    coordinator = entry.runtime_data
+    coordinator._last_push = 0.0
+    coordinator._on_push({"type": "live", "live": {**coordinator.data["live"], "alarms": [0, 0x40, 0]},
+                          "status": coordinator.data["status"], "devices": coordinator.data["devices"]})
+    await hass.async_block_till_done()
+    assert hass.states.get(alarm).state == "on"
+    assert hass.states.get(alarm).attributes["codes"] == [0, 0x40, 0]
+
+def test_soc_bounds_with_a_reserve_below_10() -> None:
+    """A reserve of 0 % set in OpenAmpere (#313) is a value, not "unknown"; Home Assistant itself stays at 10 %."""
+    from custom_components.myampere.number import SOC_NUMBERS
+    bounds = {d.key: d.bounds for d in SOC_NUMBERS}
+    data = {"battery_settings": {"min_soc": 0, "max_soc": 100, "min_soc_on_grid": 0}}
+    assert bounds["min_soc"](data) == (0, 0)
+    assert bounds["min_soc_on_grid"](data) == (10, 99)
+    assert bounds["max_soc"](data) == (20, 100)
+    assert bounds["min_soc"]({}) == (0, 100)  # not read yet
+
+
+async def test_commands(hass: HomeAssistant, entry, client) -> None:
+    await setup(hass, entry)
+    work_mode = entity_id(hass, "select", "_work_mode")
+    assert hass.states.get(work_mode).state == "self_use"
+    await hass.services.async_call("select", "select_option", {"entity_id": work_mode, "option": "backup"}, blocking=True)
+    client.set_battery.assert_called_with({"work_mode": "backup"})
+
+    reserve = entity_id(hass, "number", "_min_soc_on_grid")
+    state = hass.states.get(reserve)
+    assert state.state == "24" and state.attributes["min"] == 10 and state.attributes["max"] == 99
+    await hass.services.async_call("number", "set_value", {"entity_id": reserve, "value": 30}, blocking=True)
+    client.set_battery.assert_called_with({"min_soc_on_grid": 30})
+    assert hass.states.get(entity_id(hass, "number", "_min_soc")).attributes["min"] == 0  # #69
+
+    await hass.services.async_call("switch", "turn_on", {"entity_id": entity_id(hass, "switch", "_grid_charging")},
+                                   blocking=True)
+    client.set_grid_charging.assert_called_with({"enabled": True})
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": entity_id(hass, "select", "rod1_device_mode"), "option": "boost"}, blocking=True)
+    client.set_device_mode.assert_called_with("rod1", "boost")
+
+    client.set_battery.side_effect = OpenAmpereError("Zu viele Änderungen in kurzer Zeit")
+    with pytest.raises(HomeAssistantError, match="Zu viele Änderungen"):
+        await hass.services.async_call("select", "select_option", {"entity_id": work_mode, "option": "self_use"},
+                                       blocking=True)
+
+
+async def test_only_the_work_modes_of_the_device(hass: HomeAssistant, entry, client) -> None:
+    sajinfo = info()
+    sajinfo["device"] = {**sajinfo["device"], "manufacturer": "SAJ", "work_modes": ["self_use", "backup"]}
+    client.info.return_value = sajinfo
+    await setup(hass, entry)
+    assert hass.states.get(entity_id(hass, "select", "_work_mode")).attributes["options"] == ["self_use", "backup"]
+
+
+async def test_reserve_of_the_backup_mode_only_where_the_device_has_one(hass: HomeAssistant, entry, client) -> None:
+    sajinfo = info()
+    sajinfo["device"] = {**sajinfo["device"], "manufacturer": "SAJ", "backup_reserve": True}
+    client.info.return_value = sajinfo
+    saj_state = state()
+    saj_state["battery_settings"] = {**saj_state["battery_settings"], "backup_soc": 80}
+    client.state.return_value = saj_state
+    await setup(hass, entry)
+    backup = entity_id(hass, "number", "_backup_soc")
+    assert hass.states.get(backup).state == "80" and hass.states.get(backup).attributes["min"] == 10
+    await hass.services.async_call("number", "set_value", {"entity_id": backup, "value": 60}, blocking=True)
+    client.set_battery.assert_called_with({"backup_soc": 60})
+
+
+async def test_no_reserve_of_the_backup_mode_on_foxess(hass: HomeAssistant, entry, client) -> None:
+    await setup(hass, entry)
+    assert entity_id(hass, "number", "_backup_soc") is None
+
+
+async def test_read_only_access_has_no_controls(hass: HomeAssistant, entry, client) -> None:
+    client.info.return_value = info("read")
+    await setup(hass, entry)
+    assert entity_id(hass, "select", "_work_mode") is None and entity_id(hass, "switch", "_grid_charging") is None
+    assert entity_id(hass, "sensor", "_pv_power") is not None
+
+
+async def test_controls_unavailable_while_control_is_off(hass: HomeAssistant, entry, client) -> None:
+    from conftest import state
+
+    client.state.return_value = state(control_enabled=False)
+    await setup(hass, entry)
+    assert hass.states.get(entity_id(hass, "select", "_work_mode")).state == "unavailable"
+    assert hass.states.get(entity_id(hass, "sensor", "_control")).state == "off"
+
+
+async def test_revoked_token_asks_for_a_new_connection(hass: HomeAssistant, entry, client) -> None:
+    client.info.side_effect = InvalidAuth("Zugang ungültig")
+    entry.add_to_hass(hass)
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    flows = hass.config_entries.flow.async_progress()
+    assert [f["context"]["source"] for f in flows] == ["reauth"]
+
+
+async def test_diagnostics_hide_the_secrets(hass: HomeAssistant, entry, client) -> None:
+    await setup(hass, entry)
+    text = str(await async_get_config_entry_diagnostics(hass, entry))
+    assert "oa_secret" not in text and "192.168.178.20" not in text and "ab" * 32 not in text
+    for private in ("Süddach", "Heizstab", "Carport", "H3-10.0-Smart", "dé Mobile", "1.40"):  # names, exact model and firmware
+        assert private not in text, private
+
+
+async def test_old_values_are_unavailable_while_the_inverter_is_not_connected(hass: HomeAssistant, entry, client) -> None:
+    """#220: automations must not act on frozen values when OpenAmpere lost the connection to the inverter."""
+    await setup(hass, entry)
+    coordinator = entry.runtime_data
+
+    def push(stale: bool) -> None:
+        coordinator._last_push = 0.0
+        coordinator._on_push({"type": "live", "live": coordinator.data["live"],
+                              "status": {**coordinator.data["status"], "connected": not stale, "stale": stale},
+                              "devices": coordinator.data["devices"]})
+
+    push(stale=True)
+    await hass.async_block_till_done()
+    for platform, key in (("sensor", "_pv_power"), ("sensor", "_grid_power"), ("sensor", "_grid_export_energy"),
+                          ("sensor", "_pv_input_1_power"), ("sensor", "_battery_soc"), ("binary_sensor", "_alarm")):
+        assert hass.states.get(entity_id(hass, platform, key)).state == "unavailable", key
+    # not readings of the inverter: still there
+    assert hass.states.get(entity_id(hass, "sensor", "_price")).state == "31.5"
+    assert hass.states.get(entity_id(hass, "sensor", "_control")).state == "active"
+    assert hass.states.get(entity_id(hass, "binary_sensor", "_inverter_connected")).state == "off"
+
+    push(stale=False)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id(hass, "sensor", "_pv_power")).state == "5200.0"
+
+
+async def test_a_failed_query_keeps_the_entities_while_live_values_come(hass: HomeAssistant, entry, client) -> None:
+    """#336: behind a slow Modbus proxy one query of the state failed now and then, and every entity was
+    unavailable for a minute although the live values kept coming."""
+    await setup(hass, entry)
+    coordinator = entry.runtime_data
+    work_mode = entity_id(hass, "select", "_work_mode")
+    client.state.side_effect = CannotConnect("keine Verbindung")
+
+    await coordinator.async_refresh()  # no live connection: unavailable as before
+    assert hass.states.get(work_mode).state == "unavailable"
+
+    client.state.side_effect = None
+    await coordinator.async_refresh()
+    coordinator._on_live_connection(True)
+    client.state.side_effect = CannotConnect("keine Verbindung")
+    for _ in range(MAX_MISSED_STATES):
+        await coordinator.async_refresh()
+        assert hass.states.get(work_mode).state == "self_use"
+    await coordinator.async_refresh()  # not only now and then: unavailable
+    assert hass.states.get(work_mode).state == "unavailable"
+
+    client.state.side_effect = None
+    await coordinator.async_refresh()
+    client.state.side_effect = CannotConnect("keine Verbindung")
+    await coordinator.async_refresh()  # counted again from the last answer
+    assert hass.states.get(work_mode).state == "self_use"
+
+
+async def test_set_up_before_the_first_reading_sets_up_again_once_it_is_there(hass: HomeAssistant, entry, client) -> None:
+    """#220: after a power cut Home Assistant may be up before OpenAmpere has read the inverter."""
+    from conftest import state
+    client.info.return_value = {**info(), "device": None, "pv_inputs": [], "pv_input_count": 0}
+    client.state.return_value = {**state(), "live": None}
+    await setup(hass, entry)
+    assert entity_id(hass, "sensor", "_pv_input_0_power") is None
+
+    client.info.return_value = {**info(), "pv_input_count": 2}
+    client.state.return_value = state()
+    coordinator = entry.runtime_data
+    coordinator._on_push({"type": "live", "live": state()["live"], "status": state()["status"],
+                          "devices": state()["devices"]})
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id(hass, "sensor", "_pv_input_0_power")).state == "3000.0"
+    assert entry.runtime_data.info["device"]["model"] == "H3-10.0-Smart"
+
+
+async def test_no_new_setup_when_inputs_are_hidden(hass: HomeAssistant, entry, client) -> None:
+    """Hidden PV inputs are left out of the list, but counted: no setup over and over."""
+    client.info.return_value = {**info(), "pv_inputs": [{"index": 0, "name": "Süddach"}], "pv_input_count": 2}
+    await setup(hass, entry)
+    first = entry.runtime_data
+    first._last_push = 0.0
+    first._on_push({"type": "live", "live": first.data["live"], "status": first.data["status"],
+                    "devices": first.data["devices"]})
+    await hass.async_block_till_done()
+    assert entry.runtime_data is first
+
+
+async def test_a_counted_second_pv_inverter_gets_its_own_sensors(hass: HomeAssistant, entry, client) -> None:
+    """#419: power and the energy OpenAmpere integrated, named like in OpenAmpere; none without it."""
+    await setup(hass, entry)
+    assert entity_id(hass, "sensor", "_pv_external_power") is None
+    await hass.config_entries.async_unload(entry.entry_id)
+    client.info.return_value = {**info(), "pv_external": {"name": "Garage"}}
+    with_external = state()
+    with_external["live"] = {**with_external["live"], "pv_power": 6400.0, "pv_external_power": 1200.0,
+                             "totals": {**with_external["live"]["totals"], "pv_external": 98765.0}}
+    with_external["status"] = {**with_external["status"], "pv_external": {"name": "Garage"}}
+    client.state.return_value = with_external
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    power = hass.states.get(entity_id(hass, "sensor", "_pv_external_power"))
+    assert power.state == "1200.0" and power.attributes["friendly_name"].endswith("Garage")
+    energy = hass.states.get(entity_id(hass, "sensor", "_pv_external_energy"))
+    assert float(energy.state) == pytest.approx(98.765) and energy.attributes["state_class"] == "total_increasing"
+    assert energy.attributes["friendly_name"].endswith("Garage production")
+
+
+def test_switching_the_second_inverter_sets_up_again() -> None:
+    from custom_components.myampere.coordinator import needs_reload
+    live = state()["live"]
+    assert not needs_reload(info(), live, status={"pv_external": None})  # an older integration's info: no key
+    with_key = {**info(), "pv_external": None}
+    assert not needs_reload(with_key, live, status={"pv_external": None})
+    assert needs_reload(with_key, live, status={"pv_external": {"name": "Garage"}})
+    assert needs_reload({**info(), "pv_external": {"name": "Garage"}}, live, status={"pv_external": {"name": "Dach"}})
+    assert not needs_reload(with_key, live, status={})  # an older OpenAmpere sends no flag
+
+
+async def test_the_import_price_is_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: the prices are entities for automations; the owner switches them on in Home Assistant."""
+    await setup(hass, entry)
+    price_id = entity_id(hass, "sensor", "import_price")
+    assert price_id is not None
+    registry = er.async_get(hass)
+    assert registry.async_get(price_id).disabled_by is not None  # off by default
+    registry.async_update_entity(price_id, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(price_id).state == "20.0"  # the current quarter hour: the first one of the answer
+    assert len(hass.states.get(price_id).attributes["quarters"]) == 4
+
+
+async def test_the_forecast_is_off_until_switched_on(hass: HomeAssistant, entry, client) -> None:
+    """#6: today's and tomorrow's solar energy as entities, off by default."""
+    await setup(hass, entry)
+    registry = er.async_get(hass)
+    for which, value in (("today_kwh", "12.3"), ("tomorrow_kwh", "9.8")):
+        forecast_id = entity_id(hass, "sensor", f"forecast_{which}")
+        assert forecast_id is not None and registry.async_get(forecast_id).disabled_by is not None
+        registry.async_update_entity(forecast_id, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id(hass, "sensor", "forecast_today_kwh")).state == "12.3"
+    assert hass.states.get(entity_id(hass, "sensor", "forecast_tomorrow_kwh")).state == "9.8"
+
+
+async def test_the_charging_plan_shows_the_next_planned_quarter_hour(hass: HomeAssistant, entry, client) -> None:
+    """#6: the next planned grid-charging quarter hour as a timestamp, off by default."""
+    import time
+
+    planned = int(time.time() // 900 * 900) + 900
+    client.charging_plan.return_value = {"quarters": [planned], "reason": "günstigste Viertelstunden", "needed_wh": 4200}
+    await setup(hass, entry)
+    plan_id = entity_id(hass, "sensor", "charging_plan")
+    er.async_get(hass).async_update_entity(plan_id, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    state = hass.states.get(plan_id)
+    assert state.attributes["reason"] == "günstigste Viertelstunden"
+    assert state.attributes["needed_wh"] == 4200
+    assert state.state.startswith(time.strftime("%Y-%m-%dT", time.gmtime(planned)))

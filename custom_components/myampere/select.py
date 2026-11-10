@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright the myAmpere contributors
+# SPDX-License-Identifier: MIT
+"""Choices: work mode of the battery, mode of each heating rod or switch (automatic, off, boost), charging mode of
+each wallbox myAmpere controls."""
+
+from __future__ import annotations
+
+from homeassistant.components.select import SelectEntity
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from . import OpenAmpereConfigEntry
+from .const import DEVICE_MODES, WALLBOX_MODES, WORK_MODES
+from .coordinator import OpenAmpereCoordinator
+from .entity import ControlEntity, WallboxEntity, controllable_wallboxes
+from .helpers import send
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: OpenAmpereConfigEntry,
+                            async_add_entities: AddConfigEntryEntitiesCallback) -> None:
+    coordinator = entry.runtime_data
+    if not coordinator.can_control:
+        return  # read-only access
+    entities: list[SelectEntity] = [WorkModeSelect(coordinator)]
+    entities += [DeviceModeSelect(coordinator, d["id"]) for d in coordinator.info["devices"]]
+    entities += [WallboxModeSelect(coordinator, w["id"]) for w in controllable_wallboxes(coordinator.info)]
+    async_add_entities(entities)
+
+
+class WorkModeSelect(ControlEntity, SelectEntity):
+    def __init__(self, coordinator: OpenAmpereCoordinator) -> None:
+        super().__init__(coordinator, "work_mode")
+        # only the modes of the device (SAJ: two, #377); an older myAmpere does not say: all of them
+        offered = (coordinator.info.get("device") or {}).get("work_modes")
+        self._attr_options = [mode for mode in WORK_MODES if not offered or mode in offered]
+
+    @property
+    def current_option(self) -> str | None:
+        return (self.data.get("battery_settings") or {}).get("work_mode")
+
+    async def async_select_option(self, option: str) -> None:
+        await send(self.coordinator, self.coordinator.client.set_battery({"work_mode": option}))
+
+
+class DeviceModeSelect(ControlEntity, SelectEntity):
+    _attr_options = DEVICE_MODES
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, device_id: str) -> None:
+        super().__init__(coordinator, "device_mode", device_id)
+
+    @property
+    def current_option(self) -> str | None:
+        return self.device["mode"] if self.device else None
+
+    async def async_select_option(self, option: str) -> None:
+        await send(self.coordinator, self.coordinator.client.set_device_mode(self._device_id, option))
+
+
+class WallboxModeSelect(WallboxEntity, ControlEntity, SelectEntity):
+    """The charging mode, set through myAmpere: its master switch, test mode, limits and control log apply."""
+
+    _attr_options = WALLBOX_MODES
+
+    def __init__(self, coordinator: OpenAmpereCoordinator, wallbox_id: str) -> None:
+        super().__init__(coordinator, "wallbox_mode", wallbox_id)
+
+    @property
+    def current_option(self) -> str | None:
+        return self.wallbox["mode"] if self.wallbox else None
+
+    async def async_select_option(self, option: str) -> None:
+        await send(self.coordinator, self.coordinator.client.set_wallbox_mode(self._wallbox_id, option))
